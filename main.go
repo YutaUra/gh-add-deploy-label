@@ -70,15 +70,16 @@ func currentPullNumber(client *api.RESTClient, repo repository.Repository) (stri
 		return "", fmt.Errorf("could not get current branch: %w", err)
 	}
 
+	head := fmt.Sprintf("%s/%s:%s", repo.Owner, repo.Name, branch)
 	var pulls *[]GitHubPullRequest
-	err = client.Get(fmt.Sprintf("repos/%s/%s/pulls?head=%s", repo.Owner, repo.Name, branch), &pulls)
+	err = client.Get(fmt.Sprintf("repos/%s/%s/pulls?head=%s", repo.Owner, repo.Name, head), &pulls)
 	if err != nil {
-		return "", fmt.Errorf("could not get pull requests: %w", err)
+		return "", fmt.Errorf("could not get pull requests for %s: %w", head, err)
 	}
 	for _, pull := range *pulls {
 		return fmt.Sprintf("%d", pull.Number), nil
 	}
-	return "", errors.New("could not get pull number")
+	return "", fmt.Errorf("could not get pull number for %s", head)
 }
 
 func main() {
