@@ -2,9 +2,10 @@ package main
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"log"
+	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/cli/go-gh/v2/pkg/api"
@@ -15,14 +16,15 @@ type GitHubLabel struct {
 	Name string `json:"name"`
 }
 
-type GetPullRequestResponse struct {
+type GitHubPullRequest struct {
+	Number  int           `json:"number"`
 	Title   string        `json:"title"`
 	HtmlUrl string        `json:"html_url"`
 	Labels  []GitHubLabel `json:"labels"`
 }
 
-func getPullRequest(client *api.RESTClient, repo repository.Repository, prNumber string) (*GetPullRequestResponse, error) {
-	var pull *GetPullRequestResponse
+func getPullRequest(client *api.RESTClient, repo repository.Repository, prNumber string) (*GitHubPullRequest, error) {
+	var pull *GitHubPullRequest
 	err := client.Get(fmt.Sprintf("repos/%s/%s/pulls/%s", repo.Owner, repo.Name, prNumber), &pull)
 	if err != nil {
 		return nil, fmt.Errorf("could not get pull request: %w", err)
@@ -50,6 +52,35 @@ func addDeployLabel(client *api.RESTClient, repo repository.Repository, prNumber
 	return nil
 }
 
+func getCurrentBranch() (string, error) {
+	out, err := exec.Command("git", "branch", "--show-current").Output()
+	if err != nil {
+		return "", fmt.Errorf("could not get current branch: %w", err)
+	}
+	branch := strings.TrimSpace(string(out))
+	if branch == "" {
+		return "", errors.New("could not get current branch. get empty string")
+	}
+	return branch, nil
+}
+
+func currentPullNumber(client *api.RESTClient, repo repository.Repository) (string, error) {
+	branch, err := getCurrentBranch()
+	if err != nil {
+		return "", fmt.Errorf("could not get current branch: %w", err)
+	}
+
+	var pulls *[]GitHubPullRequest
+	err = client.Get(fmt.Sprintf("repos/%s/%s/pulls?head=%s", repo.Owner, repo.Name, branch), &pulls)
+	if err != nil {
+		return "", fmt.Errorf("could not get pull requests: %w", err)
+	}
+	for _, pull := range *pulls {
+		return fmt.Sprintf("%d", pull.Number), nil
+	}
+	return "", errors.New("could not get pull number")
+}
+
 func main() {
 	err := cli()
 	if err != nil {
@@ -58,31 +89,29 @@ func main() {
 }
 
 func cli() error {
-	repoOverride := flag.String(
-		"repo", "", "Specify a repository. If omitted, uses current repository")
-	flag.Parse()
-
 	var repo repository.Repository
-	var err error
 
-	if *repoOverride == "" {
-		repo, err = repository.Current()
-	} else {
-		repo, err = repository.Parse(*repoOverride)
-	}
+	repo, err := repository.Current()
 	if err != nil {
 		return fmt.Errorf("could not determine what repo to use: %w", err)
-
 	}
-
-	if len(flag.Args()) < 1 {
-		return errors.New("pr number is missing")
-	}
-	prNumber := strings.Join(flag.Args(), " ")
 
 	client, err := api.DefaultRESTClient()
 	if err != nil {
 		return fmt.Errorf("could not create client: %w", err)
+	}
+
+	var prNumber string
+
+	if len(os.Args) <= 1 {
+		fmt.Println("No pull number specified. Using current branch.")
+		prNumber, err = currentPullNumber(client, repo)
+		if err != nil {
+			return fmt.Errorf("could not get current pull number: %w", err)
+		}
+	} else {
+		fmt.Printf("Using pull number from arguments '%s'.\n", os.Args[1])
+		prNumber = os.Args[1]
 	}
 
 	pull, err := getPullRequest(client, repo, prNumber)
