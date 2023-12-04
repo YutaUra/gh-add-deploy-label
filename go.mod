@@ -1,6 +1,6 @@
 module github.com/YutaUra/gh-add-deploy-label
 
-go 1.21.3
+go 1.23
 
 require github.com/cli/go-gh/v2 v2.4.0
 
